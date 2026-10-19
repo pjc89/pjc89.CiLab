@@ -1,0 +1,63 @@
+name: deps
+
+# The ONLY workflow that saves the vcpkg binary cache.
+# It runs on main only: Actions caches saved on the default branch are
+# restorable from every branch, tag and PR. Caches saved on a tag are
+# restorable from that tag only. ci.yml and release.yml restore, never save.
+# Deliberately NO cancel-in-progress: burst pushes must not kill the one
+# run that saves the cache.
+on:
+  push:
+    branches: [main]
+    paths: ['vcpkg.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps
+  cancel-in-progress: false
+
+jobs:
+  populate:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite
+    steps:
+      - uses: actions/checkout@v4
+
+      # Key is unique per run: the save never collides with an existing
+      # entry, so a re-run after a toolchain update on the runner image
+      # still saves fresh packages. Consumers prefix-match the newest.
+      - name: vcpkg binary cache (saved at job end)
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-bincache
+          key: vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-x64-windows-
+
+      - name: Prepare binary cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force vcpkg-bincache | Out-Null
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Pin vcpkg root (msvc-dev-cmd exports the read-only VS-bundled one)
+        shell: pwsh
+        run: Add-Content $env:GITHUB_ENV "VCPKG_ROOT=C:/vcpkg"
+
+      - name: Fetch vcpkg history (the builtin-baseline pin may postdate the runner image)
+        shell: pwsh
+        run: git -C C:/vcpkg fetch origin
+
+      - name: Build dependencies (configure only)
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake

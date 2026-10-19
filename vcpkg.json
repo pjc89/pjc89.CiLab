@@ -1,0 +1,9 @@
+{
+  "name": "cilab",
+  "version": "0.1.0",
+  "description": "Lab repo: validate GitHub Actions vcpkg cache settings on a small build",
+  "builtin-baseline": "7d5f3c6241729acbbb7774f54bf687429aaf6492",
+  "dependencies": [
+    "zlib"
+  ]
+}

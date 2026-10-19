@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push supersedes any run still in progress for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+      # read, not readwrite: this job must never compile or save deps.
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-bincache,read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Restore only. On a miss the job fails here, in seconds, instead of
+      # compiling dependencies for an hour.
+      # Recovery: gh workflow run deps.yml, wait for green, re-run this.
+      - name: Restore vcpkg binary cache (deps.yml populates it)
+        uses: actions/cache/restore@v4
+        with:
+          path: vcpkg-bincache
+          key: vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}-
+          restore-keys: |
+            vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}-
+          fail-on-cache-miss: true
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Pin vcpkg root (msvc-dev-cmd exports the read-only VS-bundled one)
+        shell: pwsh
+        run: Add-Content $env:GITHUB_ENV "VCPKG_ROOT=C:/vcpkg"
+
+      - name: Fetch vcpkg history (the builtin-baseline pin may postdate the runner image)
+        shell: pwsh
+        run: git -C C:/vcpkg fetch origin
+
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build
+
+      - name: Run
+        shell: pwsh
+        run: .\build\cilab.exe
