@@ -28,3 +28,5 @@ mechanics on a build that takes minutes, not an hour.
 
 If `ci` or `release` fails at the restore step: `gh workflow run deps.yml`,
 wait for green, re-run the failed run.
+
+Gate B: cache-hit push test.
